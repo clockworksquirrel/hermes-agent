@@ -215,6 +215,23 @@ def test_include_unconfigured_skips_already_present_slugs():
     assert or_rows[0]["models"] == ["m1"]  # the authenticated row, not skeleton
 
 
+def test_allowed_providers_filters_unconfigured_skeletons():
+    """Provider allowlist must also apply after canonical skeleton rows are appended."""
+    rows = [
+        {"slug": "pinchpoint", "name": "Pinchpoint", "models": ["claude-fable-5"],
+         "total_models": 1, "is_current": True, "is_user_defined": True,
+         "source": "user"},
+    ]
+    ctx = _empty_ctx(provider="pinchpoint", model="claude-fable-5")
+    with _list_auth_returning(rows), \
+         patch("hermes_cli.config.load_config", return_value={
+             "model_picker": {"allowed_providers": ["pinchpoint"]}
+         }):
+        payload = build_models_payload(ctx, include_unconfigured=True)
+
+    assert {row["slug"] for row in payload["providers"]} == {"pinchpoint"}
+
+
 # ─── picker_hints ──────────────────────────────────────────────────────
 
 

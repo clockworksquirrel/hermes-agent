@@ -37,6 +37,20 @@ from dataclasses import dataclass, replace
 from typing import Optional
 
 
+def _apply_allowed_provider_filter(rows: list[dict], ctx: ConfigContext) -> list[dict]:
+    """Apply optional model-picker provider allowlist to inventory rows."""
+    try:
+        from hermes_cli.config import load_config as _lc
+
+        allowed = ((_lc().get("model_picker") or {}).get("allowed_providers") or [])
+        if not isinstance(allowed, list) or not allowed:
+            return rows
+        ok = {str(slug).strip().lower() for slug in allowed if str(slug).strip()}
+        return [row for row in rows if str(row.get("slug", "")).strip().lower() in ok]
+    except Exception:
+        return rows
+
+
 # ─── Public types ───────────────────────────────────────────────────────
 
 
@@ -151,8 +165,17 @@ def build_models_payload(
         max_models=max_models,
     )
 
+
+    # Josh customization: optional picker allowlist. When
+    # ``model_picker.allowed_providers`` is a non-empty list in config.yaml,
+    # only those provider slugs survive into any picker payload. Slugs match
+    # case-insensitively. Reapplied after updates by
+    # ~/.hermes/scripts/reapply-hermes-custom-update-protection.py.
+    rows = _apply_allowed_provider_filter(rows, ctx)
+
     if include_unconfigured:
         rows = list(rows) + _append_unconfigured_rows(rows, ctx)
+        rows = _apply_allowed_provider_filter(rows, ctx)
     if picker_hints:
         _apply_picker_hints(rows)
     if canonical_order:

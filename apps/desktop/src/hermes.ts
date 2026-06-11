@@ -41,8 +41,10 @@ import type {
 } from '@/types/hermes'
 
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = 30_000
+const SESSION_LIST_REQUEST_TIMEOUT_MS = 60_000
 const VOICE_REQUEST_TIMEOUT_SECONDS = 24 * 60 * 60
 const VOICE_REQUEST_TIMEOUT_MS = VOICE_REQUEST_TIMEOUT_SECONDS * 1000
+const VOICE_REQUEST_TIMEOUT_MARKER = '_x=1440*60*1e3'
 
 export type {
   ActionResponse,
@@ -663,11 +665,12 @@ export function transcribeAudio(dataUrl: string, mimeType?: string): Promise<Aud
   return window.hermesDesktop.api<AudioTranscriptionResponse>({
     path: '/api/audio/transcribe',
     method: 'POST',
+    timeoutMs: VOICE_REQUEST_TIMEOUT_MS,
+    timeoutMarker: VOICE_REQUEST_TIMEOUT_MARKER,
     body: {
       data_url: dataUrl,
       mime_type: mimeType
-    },
-    timeoutMs: VOICE_REQUEST_TIMEOUT_MS
+    }
   })
 }
 
@@ -678,8 +681,9 @@ export function speakText(text: string): Promise<AudioSpeakResponse> {
   return window.hermesDesktop.api<AudioSpeakResponse>({
     path: '/api/audio/speak',
     method: 'POST',
-    body: { text },
-    timeoutMs: VOICE_REQUEST_TIMEOUT_MS
+    timeoutMs: VOICE_REQUEST_TIMEOUT_MS,
+    timeoutMarker: VOICE_REQUEST_TIMEOUT_MARKER,
+    body: { text }
   })
 }
 

@@ -43,6 +43,41 @@ def _loopback_hostname(host: str) -> bool:
     return h in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
 
+def _pinchpoint_hostname(host: str) -> bool:
+    h = (host or "").lower().rstrip(".")
+    return h == "pinchpoint.cloud" or h.endswith(".pinchpoint.cloud") or h == "aio.clawoops.lol"
+
+
+def is_locked_first_party_provider(provider: str | None, base_url: str | None = None) -> bool:
+    """Return True for providers that must not auto-fallback to aggregators.
+
+    Pinchpoint is represented in a few shapes across Hermes: a named
+    ``pinchpoint`` provider in config, a resolved ``custom`` runtime, or an
+    explicit Pinchpoint base URL restored from a session row. Treat all of
+    those as the same trust domain.
+    """
+    normalized = (provider or "").strip().lower()
+    if normalized in {"pinchpoint", "custom"} or normalized.startswith("custom:"):
+        return True
+    if base_url and _pinchpoint_hostname(base_url_hostname(base_url)):
+        return True
+    try:
+        providers = (load_config().get("providers") or {})
+        entry = providers.get(normalized) if isinstance(providers, dict) else None
+        if isinstance(entry, dict):
+            entry_base = str(entry.get("base_url") or "").strip()
+            if entry_base and _pinchpoint_hostname(base_url_hostname(entry_base)):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _placeholder_key_allowed_for_custom_base(base_url: str) -> bool:
+    host = base_url_hostname(base_url)
+    return _loopback_hostname(host) or _pinchpoint_hostname(host)
+
+
 def _config_base_url_trustworthy_for_bare_custom(cfg_base_url: str, cfg_provider: str) -> bool:
     """Decide whether ``model.base_url`` may back bare ``custom`` runtime resolution.
 
@@ -890,7 +925,20 @@ def _resolve_openrouter_runtime(
         if pool_result:
             return pool_result
 
+    if effective_provider == "custom" and _is_openrouter_url and not (explicit_api_key or explicit_base_url):
+        raise AuthError(
+            "Custom provider requested without a configured custom endpoint; refusing to fall through to OpenRouter.",
+            provider="custom",
+            code="custom_openrouter_fallback_disabled",
+        )
+
     if effective_provider == "custom" and not api_key and not _is_openrouter_url:
+        if not _placeholder_key_allowed_for_custom_base(base_url):
+            raise AuthError(
+                f"Custom endpoint {base_url!r} requires an API key; refusing to send placeholder auth.",
+                provider="custom",
+                code="custom_placeholder_auth_refused",
+            )
         api_key = "no-key-required"
 
     return {

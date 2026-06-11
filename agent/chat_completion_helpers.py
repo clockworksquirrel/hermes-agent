@@ -26,6 +26,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 from hermes_cli.timeouts import get_provider_request_timeout, get_provider_stale_timeout
+from hermes_cli.runtime_provider import is_locked_first_party_provider
 from hermes_constants import PARTIAL_STREAM_STUB_ID, FINISH_REASON_LENGTH
 from agent.error_classifier import FailoverReason
 from agent.model_metadata import is_local_endpoint
@@ -1033,13 +1034,29 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
     if not fb_provider or not fb_model:
         return agent._try_activate_fallback()  # skip invalid, try next
 
+    current_provider = (getattr(agent, "provider", "") or "").strip().lower()
+    current_model = (getattr(agent, "model", "") or "").strip()
+    current_base_url = str(getattr(agent, "base_url", "") or "").rstrip("/").lower()
+    primary_runtime = getattr(agent, "_primary_runtime", {}) or {}
+    primary_provider = str(primary_runtime.get("provider") or current_provider or "").strip().lower()
+    primary_base_url = str(primary_runtime.get("base_url") or getattr(agent, "base_url", "") or "").strip()
+    fb_base_url_hint = (fb.get("base_url") or "").strip() or None
+    if (
+        is_locked_first_party_provider(primary_provider, primary_base_url)
+        and not is_locked_first_party_provider(fb_provider, fb_base_url_hint)
+    ):
+        logger.warning(
+            "Fallback skip: primary provider %s is Pinchpoint/custom-only; "
+            "refusing fallback to %s",
+            primary_provider or "custom",
+            fb_provider,
+        )
+        return agent._try_activate_fallback()
+
     # Skip entries that resolve to the current (provider, model) — falling
     # back to the same backend that just failed loops the failure. Compare
     # base_url too so two distinct custom_providers entries pointing at the
     # same shim/proxy URL also dedup. See issue #22548.
-    current_provider = (getattr(agent, "provider", "") or "").strip().lower()
-    current_model = (getattr(agent, "model", "") or "").strip()
-    current_base_url = str(getattr(agent, "base_url", "") or "").rstrip("/").lower()
     fb_base_url_for_dedup = (fb.get("base_url") or "").strip().rstrip("/").lower()
     if fb_provider == current_provider and fb_model == current_model:
         logger.warning(

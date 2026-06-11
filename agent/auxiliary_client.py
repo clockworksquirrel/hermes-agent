@@ -101,6 +101,7 @@ OpenAI = _OpenAIProxy()  # module-level name, resolves lazily on call/isinstance
 
 from agent.credential_pool import load_pool
 from hermes_cli.config import get_hermes_home
+from hermes_cli.runtime_provider import is_locked_first_party_provider
 from hermes_constants import OPENROUTER_BASE_URL
 from utils import base_url_host_matches, base_url_hostname, normalize_proxy_env_vars
 
@@ -2905,10 +2906,13 @@ def _try_payment_fallback(
                        "openai-codex": "openai-codex", "codex": "openai-codex",
                        "custom": "local/custom", "local/custom": "local/custom"}
     skip_chain_labels = {_alias_to_label.get(s, s) for s in skip_labels}
+    locked_failed_provider = is_locked_first_party_provider(failed_provider)
 
     tried = []
     for label, try_fn in _get_provider_chain():
         if label in skip_chain_labels:
+            continue
+        if locked_failed_provider and not is_locked_first_party_provider(label):
             continue
         if _is_provider_unhealthy(label):
             _log_skip_unhealthy(label, task)
@@ -2957,6 +2961,8 @@ def _try_main_agent_model_fallback(
     if main_provider.lower() == skip:
         # The thing that failed IS the main model — nothing to fall back to.
         return None, None, ""
+    if is_locked_first_party_provider(failed_provider) and not is_locked_first_party_provider(main_provider):
+        return None, None, ""
     if _is_provider_unhealthy(main_provider):
         _log_skip_unhealthy(main_provider, task)
         return None, None, ""
@@ -3002,6 +3008,7 @@ def _try_configured_fallback_chain(
         return None, None, ""
 
     skip = failed_provider.lower().strip()
+    locked_failed_provider = is_locked_first_party_provider(failed_provider)
     tried = []
 
     for i, entry in enumerate(chain):
@@ -3013,6 +3020,8 @@ def _try_configured_fallback_chain(
         fb_model = str(entry.get("model", "")).strip() or None
         fb_base_url = str(entry.get("base_url", "")).strip() or None
         fb_api_key = str(entry.get("api_key", "")).strip() or None
+        if locked_failed_provider and not is_locked_first_party_provider(fb_provider, fb_base_url):
+            continue
 
         label = f"fallback_chain[{i}]({fb_provider})"
 
@@ -3154,6 +3163,14 @@ def _resolve_auto(main_runtime: Optional[Dict[str, Any]] = None) -> Tuple[Option
                 logger.info("Auxiliary auto-detect: using main provider %s (%s)",
                             main_provider, resolved or main_model)
                 return client, resolved or main_model
+
+    if is_locked_first_party_provider(main_provider, runtime_base_url):
+        logger.warning(
+            "Auxiliary auto-detect: main provider %s is Pinchpoint/custom-only; "
+            "not falling through to third-party providers.",
+            main_provider,
+        )
+        return None, None
 
     # ── Step 2: aggregator / fallback chain ──────────────────────────────
     tried = []

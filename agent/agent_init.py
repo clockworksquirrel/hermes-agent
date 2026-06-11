@@ -33,6 +33,7 @@ from urllib.parse import urlparse, parse_qs, urlunparse
 from agent.context_compressor import ContextCompressor
 from agent.iteration_budget import IterationBudget
 from agent.memory_manager import StreamingContextScrubber
+from hermes_cli.runtime_provider import is_locked_first_party_provider
 from agent.model_metadata import (
     MINIMUM_CONTEXT_LENGTH,
     fetch_model_metadata,
@@ -793,6 +794,12 @@ def init_agent(
                         _fb_entries = [fallback_model]
                     _fb_resolved = False
                     for _fb in _fb_entries:
+                        _fb_base_url = (_fb.get("base_url") or "").strip() or None
+                        if (
+                            is_locked_first_party_provider(_explicit, getattr(agent, "base_url", ""))
+                            and not is_locked_first_party_provider(_fb.get("provider"), _fb_base_url)
+                        ):
+                            continue
                         _fb_explicit_key = (_fb.get("api_key") or "").strip() or None
                         if not _fb_explicit_key:
                             _fb_key_env = (_fb.get("key_env") or _fb.get("api_key_env") or "").strip()
@@ -800,7 +807,7 @@ def init_agent(
                                 _fb_explicit_key = os.getenv(_fb_key_env, "").strip() or None
                         _fb_client, _fb_model = resolve_provider_client(
                             _fb["provider"], model=_fb["model"], raw_codex=True,
-                            explicit_base_url=_fb.get("base_url"),
+                            explicit_base_url=_fb_base_url,
                             explicit_api_key=_fb_explicit_key,
                         )
                         if _fb_client is not None:

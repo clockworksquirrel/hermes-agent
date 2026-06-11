@@ -3524,6 +3524,24 @@ class TestAuxUnhealthyCache:
         or_try.assert_not_called()
         assert client is nous_client
 
+    def test_resolve_auto_pinchpoint_does_not_fall_through_to_openrouter(self):
+        """Pinchpoint/custom-only main routing must fail closed when Step-1 is unavailable."""
+        from agent.auxiliary_client import _resolve_auto
+
+        openrouter_client = MagicMock()
+        with patch("agent.auxiliary_client._read_main_provider", return_value="pinchpoint"), \
+             patch("agent.auxiliary_client._read_main_model", return_value="claude-fable-5"), \
+             patch("agent.auxiliary_client.resolve_provider_client", return_value=(None, None)), \
+             patch("agent.auxiliary_client._try_openrouter", return_value=(openrouter_client, "or-model")) as or_try, \
+             patch("agent.auxiliary_client._try_nous", return_value=(None, None)), \
+             patch("agent.auxiliary_client._try_custom_endpoint", return_value=(None, None)), \
+             patch("agent.auxiliary_client._resolve_api_key_provider", return_value=(None, None)):
+            client, model = _resolve_auto()
+
+        assert client is None
+        assert model is None
+        or_try.assert_not_called()
+
     def test_payment_fallback_skips_unhealthy(self):
         """_try_payment_fallback also consults the unhealthy cache so a 402
         on OpenRouter doesn't cause a second OR call within the same chain
