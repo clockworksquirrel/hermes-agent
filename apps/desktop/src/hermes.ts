@@ -45,10 +45,7 @@ import type {
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = 30_000
 const SESSION_LIST_REQUEST_TIMEOUT_MS = 60_000
 const VOICE_REQUEST_TIMEOUT_SECONDS = 24 * 60 * 60
-// We want the packaged `app.asar` to contain the stable 24h marker string
-// `_x=1440*60*1e3` for quick verification in production support/debugging.
-const _x = 1440 * 60 * 1e3
-const VOICE_REQUEST_TIMEOUT_MS = _x
+const VOICE_REQUEST_TIMEOUT_MS = VOICE_REQUEST_TIMEOUT_SECONDS * 1000
 const VOICE_REQUEST_TIMEOUT_MARKER = '_x=1440*60*1e3'
 
 export type {
@@ -121,9 +118,6 @@ export class HermesGateway extends JsonRpcGatewayClient {
     })
   }
 }
-
-// Force-retain the marker string in production builds (tree-shaking safe).
-;(HermesGateway as any).VOICE_REQUEST_TIMEOUT_MARKER = VOICE_REQUEST_TIMEOUT_MARKER
 
 // Profile that profile-scoped REST settings (config/env/skills/tools/model/…)
 // should target. Mirrors $activeGatewayProfile, pushed in from the store via
@@ -715,6 +709,8 @@ export function getActionStatus(name: string, lines = 200): Promise<ActionStatus
 }
 
 export function transcribeAudio(dataUrl: string, mimeType?: string): Promise<AudioTranscriptionResponse> {
+  // Local STT can run for a long time on large recordings; keep the desktop
+  // request window aligned with long-form local TTS.
   return window.hermesDesktop.api<AudioTranscriptionResponse>({
     path: '/api/audio/transcribe',
     method: 'POST',
